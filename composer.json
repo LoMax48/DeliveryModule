@@ -7,14 +7,17 @@
         "php": ">=7.2.5",
         "ext-ctype": "*",
         "ext-iconv": "*",
+        "ext-json": "*",
         "doctrine/doctrine-bundle": "^2.6",
         "doctrine/doctrine-fixtures-bundle": "^3.4",
         "doctrine/doctrine-migrations-bundle": "^3.2",
         "doctrine/orm": "^2.12",
+        "retailcrm/api-client-php": "^6.8",
         "symfony/console": "5.4.*",
         "symfony/dotenv": "5.4.*",
         "symfony/flex": "^1.17|^2",
         "symfony/framework-bundle": "5.4.*",
+        "symfony/http-client": "5.4.*",
         "symfony/maker-bundle": "^1.43",
         "symfony/proxy-manager-bridge": "5.4.*",
         "symfony/runtime": "5.4.*",
@@ -25,7 +28,8 @@
         "allow-plugins": {
             "composer/package-versions-deprecated": true,
             "symfony/flex": true,
-            "symfony/runtime": true
+            "symfony/runtime": true,
+            "civicrm/composer-compile-plugin": true
         },
         "optimize-autoloader": true,
         "preferred-install": {
@@ -67,6 +71,10 @@
         "symfony": {
             "allow-contrib": false,
             "require": "5.4.*"
-        }
+        },
+        "compile-whitelist": ["retailcrm/api-client-php"]
+    },
+    "require-dev": {
+        "symfony/webpack-encore-bundle": "^1.14"
     }
 }
