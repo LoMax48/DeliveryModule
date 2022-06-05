@@ -41,7 +41,6 @@ class ApiController extends AbstractController
             $content = $response->toArray();
 
             return $content['SessionId'] ?: $content['ErrorMessage'];
-
         } catch (\Exception $exception) {
             return $exception->getMessage();
         }
@@ -53,7 +52,7 @@ class ApiController extends AbstractController
      * @return Response
      * @Route("/shipmentPointList", name="api_postamat_list", methods={"GET"})
      */
-    public function getPostamatList(Request $request, ConnectionRepository $connectionRepository): Response
+    public function getShipmentPointsList(Request $request, ConnectionRepository $connectionRepository): Response
     {
         $data = json_decode($request->getContent(), true);
 
@@ -70,7 +69,10 @@ class ApiController extends AbstractController
                     'https://e-solution.pickpoint.ru/apitest/clientpostamatlist',
                     [
                         'json' => [
-                            'SessionId' => $this->startSession($connection->getDeliveryLogin(), $connection->getDeliveryPassword()),
+                            'SessionId' => $this->startSession(
+                                $connection->getDeliveryLogin(),
+                                $connection->getDeliveryPassword()
+                            ),
                             'IKN' => $connection->getDeliveryIKN()
                         ]
                     ]
@@ -104,11 +106,45 @@ class ApiController extends AbstractController
 
     /**
      * @return Response
+     * @Route("/nearestShipmentPoint", name="api_nearest_postamat", methods={"POST"})
+     */
+    public function getNearestShipmentPoint(Request $request, ConnectionRepository $connectionRepository): Response
+    {
+        $data = json_decode($request->getContent(), true);
+
+        $shipmentPointsResponse = $this->getShipmentPointsList($request, $connectionRepository);
+        $shipmentPoints = new ArrayCollection(json_decode($shipmentPointsResponse->getContent(), true));
+
+        $iterator = $shipmentPoints->getIterator();
+
+        $oneDegreeLength = 80000;
+        $clientLatitude = $data['clientLatitude'];
+        $clientLongitude = $data['clientLongitude'];
+
+        $iterator->uasort(function ($first, $second) use ($oneDegreeLength, $clientLatitude, $clientLongitude) {
+            return ($oneDegreeLength * sqrt((($clientLatitude - $first['Latitude']) ** 2) +
+                    (($clientLongitude - $first['Longitude']) ** 2))) >
+            ($oneDegreeLength * sqrt((($clientLatitude - $second['Latitude']) ** 2) +
+                    (($clientLongitude - $second['Longitude']) ** 2))) ? 1 : -1;
+        });
+
+        $sortedShipmentPoints = new ArrayCollection(iterator_to_array($iterator));
+        $nearestShipmentPoint = $sortedShipmentPoints->first();
+
+        $response = new Response();
+        $response->setContent(json_encode($nearestShipmentPoint));
+        $response->setStatusCode(Response::HTTP_OK);
+        $response->headers->set('Content-Type', 'application/json');
+
+        return $response;
+    }
+
+    /**
+     * @return Response
      * @Route("createshipment", name="api_create_shipment", methods={"POST"})
      */
     public function createShipment(Request $request): Response
     {
-
     }
 
     /**
