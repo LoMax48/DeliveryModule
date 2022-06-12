@@ -4,11 +4,16 @@ namespace App\Entity;
 
 use App\Repository\ConnectionRepository;
 use Doctrine\ORM\Mapping as ORM;
+use RetailCrm\Validator\CrmUrl;
+use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
+use Symfony\Component\Security\Core\User\UserInterface;
+use Symfony\Component\Validator\Constraints as Assert;
 
 /**
  * @ORM\Entity(repositoryClass=ConnectionRepository::class)
+ * @UniqueEntity(fields={"clientId"}, message="There is already an account with this clientId")
  */
-class Connection
+class Connection implements UserInterface
 {
     /**
      * @ORM\Id
@@ -19,6 +24,8 @@ class Connection
 
     /**
      * @ORM\Column(type="string", length=255)
+     * @Assert\NotBlank()
+     * @CrmUrl()
      */
     private $crmUrl;
 
@@ -41,6 +48,16 @@ class Connection
      * @ORM\Column(type="string", length=255)
      */
     private $deliveryIKN;
+
+    /**
+     * @ORM\Column(type="boolean", nullable=true)
+     */
+    private $isActive;
+
+    /**
+     * @ORM\Column(type="string", length=255, unique=true)
+     */
+    private $clientId;
 
     public function getId(): ?int
     {
@@ -105,5 +122,59 @@ class Connection
         $this->deliveryIKN = $deliveryIKN;
 
         return $this;
+    }
+
+    public function isActive(): ?bool
+    {
+        return $this->isActive;
+    }
+
+    public function setIsActive(bool $isActive): self
+    {
+        $this->isActive = $isActive;
+
+        return $this;
+    }
+
+    public function getClientId(): ?string
+    {
+        return $this->clientId;
+    }
+
+    public function setClientId(string $clientId): self
+    {
+        $this->clientId = $clientId;
+
+        return $this;
+    }
+
+    public function getRoles()
+    {
+        return ['ROLE_USER'];
+    }
+
+    public function getSalt()
+    {
+        // TODO: Implement getSalt() method.
+    }
+
+    public function getPassword()
+    {
+        // TODO: Implement getPassword() method.
+    }
+
+    public function getUsername()
+    {
+        return $this->getCrmUrl();
+    }
+
+    public function getUserIdentifier(): string
+    {
+        return $this->getCrmUrl();
+    }
+
+    public function eraseCredentials()
+    {
+        // TODO: Implement eraseCredentials() method.
     }
 }

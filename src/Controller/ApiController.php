@@ -2,14 +2,32 @@
 
 namespace App\Controller;
 
+use App\Component\Exception\AlreadyExistsException;
+use App\Entity\Connection;
 use App\Repository\ConnectionRepository;
+use App\Services\ConnectionService;
+use App\Services\IntegrationService;
+use App\Services\CallbackService;
+use App\Utils\ConfigurationBuilder;
 use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\DBAL\Exception;
+use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LoggerInterface;
 use RetailCrm\Api\Factory\SimpleClientFactory;
 use RetailCrm\Api\Interfaces\ApiExceptionInterface;
+use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestCalculate;
+use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestSave;
+use RetailCrm\Api\Model\Entity\Integration\IntegrationModule;
+use RetailCrm\Api\Model\Entity\Integration\Integrations;
+use RetailCrm\Api\Model\Request\Integration\IntegrationModulesEditRequest;
+use RetailCrm\Api\Model\Response\Integration\IntegrationModulesEditResponse;
+use RetailCrm\ServiceBundle\Models\Error;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
@@ -17,12 +35,46 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  */
 class ApiController extends AbstractController
 {
-    private $httpClient;
+    private EntityManagerInterface $entityManager;
+    private HttpClientInterface $httpClient;
+    private CallbackService $service;
 
-    public function __construct(HttpClientInterface $client)
-    {
-        $this->httpClient = $client;
+
+    public function __construct(
+        HttpClientInterface $httpClient,
+        EntityManagerInterface $entityManager,
+        CallbackService $service
+    ) {
+        $this->httpClient = $httpClient;
+        $this->entityManager = $entityManager;
+        $this->service = $service;
     }
+
+//    /**
+//     * @Route("/signin", name="api_connection_create", options = { "expose" = true }, methods={"POST"})
+//     */
+//    public function signIn(Connection $connectionData): Response
+//    {
+//        try {
+//            $connection = $this->connectionService->createConnection($connectionData);
+//        } catch (AlreadyExistsException $exception) {
+//            $apiResponse = new Error();
+//            $apiResponse->code = 'ACCOUNT_ALREADY_EXISTS_ERROR';
+//            $apiResponse->message = 'This connection already exists';
+//
+//            return new JsonResponse($apiResponse, Response::HTTP_NOT_FOUND);
+//        }
+//
+//        try {
+//            $this->integrationService->createOrUpdate($connection);
+//        } catch (\Throwable $exception) {
+//            return new JsonResponse(['success' => false], Response::HTTP_INTERNAL_SERVER_ERROR);
+//        }
+//
+//        $this->entityManager->flush();
+//
+//        return new JsonResponse(['success' => true]);
+//    }
 
     public function startSession(string $login, string $password): string
     {
@@ -33,7 +85,7 @@ class ApiController extends AbstractController
                 [
                     'json' => [
                         'Login' => $login,
-                        'Password' => $password
+                        'Password' => $password,
                     ]
                 ]
             );
@@ -46,159 +98,73 @@ class ApiController extends AbstractController
         }
     }
 
-
-
     /**
      * @return Response
      * @Route("/shipmentPointList", name="api_postamat_list", methods={"GET"})
      */
-    public function getShipmentPointsList(Request $request, ConnectionRepository $connectionRepository): Response
-    {
-        $data = json_decode($request->getContent(), true);
 
-        $connection = $connectionRepository->findOneBy([
-            'deliveryLogin' => $data['clientId']
+
+    /**
+     * @return Response
+     * @Route("/nearestShipmentPoint", name="api_nearest_postamat", methods={"GET"})
+     */
+
+    /**
+     * @return Response
+     * @Route("/registermodule", name="api_register_module", methods={"POST"})
+     */
+    public function registerModule(ConfigurationBuilder $configurationBuilder): Response
+    {
+        $connection = $this->entityManager->getRepository(Connection::class)->findOneBy([
+            'crmUrl' => 'https://lomax48.retailcrm.ru',
         ]);
 
-        $response = new Response();
-
-        if ($connection) {
+        if ($connection !== null) {
+            $client = SimpleClientFactory::createClient($connection->getCrmUrl(), $connection->getApiKey());
+            $module = $configurationBuilder->build($connection);
             try {
-                $deliveryResponse = $this->httpClient->request(
-                    'POST',
-                    'https://e-solution.pickpoint.ru/apitest/clientpostamatlist',
-                    [
-                        'json' => [
-                            'SessionId' => $this->startSession(
-                                $connection->getDeliveryLogin(),
-                                $connection->getDeliveryPassword()
-                            ),
-                            'IKN' => $connection->getDeliveryIKN()
-                        ]
-                    ]
+                $integrationResponse = $client->integration->edit(
+                    'pickpoint',
+                    new IntegrationModulesEditRequest($module)
                 );
-
-                $targetCity = $data['city'];
-
-                $shipmentPoints = new ArrayCollection($deliveryResponse->toArray());
-
-                $filteredShipmentPoints = $shipmentPoints->filter(function ($shipmentPoint) use ($targetCity) {
-                    return $shipmentPoint['CitiName'] === $targetCity;
-                });
-
-                $response->setContent(json_encode($filteredShipmentPoints->getValues()));
-            } catch (\Exception $exception) {
-                $response->setContent(json_encode([
-                    'errorMessage' => $exception->getMessage()
-                ]));
+                $response = new JsonResponse([
+                    'success' => $integrationResponse->success
+                ]);
+            } catch (ApiExceptionInterface $exception) {
+                $response = new JsonResponse([
+                    'code' => $exception->getCode(),
+                    'message' => $exception->getMessage(),
+                ]);
             }
-        } else {
-            $response->setContent(json_encode([
-                'errorMessage' => 'Неверный логин службы доставки'
-            ]));
         }
-
-        $response->setStatusCode(Response::HTTP_OK);
-        $response->headers->set('Content-Type', 'application/json');
-
         return $response;
     }
 
     /**
+     * @param RequestCalculate $requestCalculate
      * @return Response
-     * @Route("/nearestShipmentPoint", name="api_nearest_postamat", methods={"POST"})
+     * @throws \JsonException
+     * @Route("/calculate", name="api_calculate", methods={"POST"})
      */
-    public function getNearestShipmentPoint(Request $request, ConnectionRepository $connectionRepository): Response
+    public function calculate(RequestCalculate $requestCalculate): Response
     {
-        $data = json_decode($request->getContent(), true);
+        $connection = $this->entityManager->getRepository(Connection::class)->findOneBy([
+            'crmUrl' => 'https://lomax48.retailcrm.ru',
+        ]);
 
-        $shipmentPointsResponse = $this->getShipmentPointsList($request, $connectionRepository);
-        $shipmentPoints = new ArrayCollection(json_decode($shipmentPointsResponse->getContent(), true));
+        $result = $this->service->calculate($connection, $requestCalculate);
 
-        $iterator = $shipmentPoints->getIterator();
-
-        $oneDegreeLength = 80000;
-        $clientLatitude = $data['clientLatitude'];
-        $clientLongitude = $data['clientLongitude'];
-
-        $iterator->uasort(function ($first, $second) use ($oneDegreeLength, $clientLatitude, $clientLongitude) {
-            return ($oneDegreeLength * sqrt((($clientLatitude - $first['Latitude']) ** 2) +
-                    (($clientLongitude - $first['Longitude']) ** 2))) >
-            ($oneDegreeLength * sqrt((($clientLatitude - $second['Latitude']) ** 2) +
-                    (($clientLongitude - $second['Longitude']) ** 2))) ? 1 : -1;
-        });
-
-        $sortedShipmentPoints = new ArrayCollection(iterator_to_array($iterator));
-        $nearestShipmentPoint = $sortedShipmentPoints->first();
-
-        $response = new Response();
-        $response->setContent(json_encode($nearestShipmentPoint));
-        $response->setStatusCode(Response::HTTP_OK);
-        $response->headers->set('Content-Type', 'application/json');
-
-        return $response;
+        return new JsonResponse($result);
     }
 
-    /**
-     * @return Response
-     * @Route("createshipment", name="api_create_shipment", methods={"POST"})
-     */
-    public function createShipment(Request $request): Response
+    public function save(RequestSave $requestSave): Response
     {
+        $connection = $this->entityManager->getRepository(Connection::class)->findOneBy([
+            'crmUrl' => 'https://lomax48.retailcrm.ru',
+        ]);
+
+        $result = $this->service->save($connection, $requestSave);
+
+        return new JsonResponse($result);
     }
-
-    /**
-     * @Route("/getsession", name="api_session", methods={"GET"})
-     */
-    public function getSessionId(Request $request): Response
-    {
-        $data = json_decode($request->getContent(), true);
-
-        try {
-            $answer = [
-                'SessionId' => $this->startSession($data['Login'], $data['Password']) ?: null
-            ];
-        } catch (\Exception $exception) {
-            $answer = [
-                'errorMessage' => $exception->getMessage()
-            ];
-        }
-
-        $response = new Response();
-        $response->setStatusCode(Response::HTTP_OK);
-        $response->setContent(json_encode($answer));
-        $response->headers->set('Content-Type', 'application/json');
-
-        return $response;
-    }
-
-    /**
-     * @return Response
-     * @Route("/credentials", name="api_credentials", methods={"GET"})
-     */
-    public function credentials(): Response
-    {
-        $response = new Response();
-
-        $client = SimpleClientFactory::createClient('https://lomax48.retailcrm.ru', '5fdZEgnP0AHQzYtG5CPnKykCRujQBVNK');
-
-        try {
-            $apiResponse = $client->api->credentials();
-            $response->setContent(json_encode($apiResponse));
-            $response->setStatusCode(Response::HTTP_OK);
-        } catch (ApiExceptionInterface $exception) {
-            $data = [
-                'code' => Response::HTTP_BAD_REQUEST,
-                'message' => $exception->getMessage(),
-            ];
-            $response->setContent(json_encode($data));
-            $response->setStatusCode(Response::HTTP_BAD_REQUEST);
-        }
-
-        $response->headers->set('Content-Type', 'application/json');
-
-        return $response;
-    }
-
-
 }

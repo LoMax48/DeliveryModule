@@ -1,0 +1,14 @@
+parameters:
+  delivery.codes:
+    - '01'
+    - '10'
+
+  delivery.mapper_statuses:
+    -
+      name: 'Черновик'
+      code: '01'
+      isEditable: false
+    -
+      name: 'Тест'
+      code: '10'
+      isEditable: true

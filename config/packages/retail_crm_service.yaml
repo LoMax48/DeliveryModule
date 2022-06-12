@@ -1,0 +1,14 @@
+retail_crm_service:
+  request_schema:
+    callback:
+      supports:
+        - { type: RetailCrm\Api\Model\Callback\Entity\Integration\IntegrationModule, params: [ "activity" ] }
+        - { type: RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestCalculate, params: [ "calculate" ] }
+        - { type: RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestSave, params: [ "save" ] }
+        - { type: RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestDelete, params: [ "delete" ] }
+    client:
+      supports:
+        - App\Entity\Connection
+        - RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestCalculate
+  messenger:
+    message_handler: simple_console_runner

@@ -9,7 +9,7 @@ security:
         app_user_provider:
             entity:
                 class: App\Entity\Connection
-                property: id
+                property: 'clientId'
     firewalls:
         dev:
             pattern: ^/(_(profiler|wdt)|css|images|js)/
@@ -17,6 +17,14 @@ security:
         main:
             lazy: true
             provider: app_user_provider
+        callback:
+            pattern: ^/api/v1
+            provider: app_user_provider
+            lazy: true
+            stateless: true
+            guard:
+                authenticators:
+                    - RetailCrm\ServiceBundle\Security\CallbackClientAuthenticator
 
             # activate different ways to authenticate
             # https://symfony.com/doc/current/security.html#the-firewall
