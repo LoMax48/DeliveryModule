@@ -77,7 +77,10 @@ class ConfigurationBuilder
             'save' => '/api/v1/save',
             'get' => '/api/v1/get',
             'delete' => '/api/v1/delete',
-            'print' => 'api/v1/makeLabel',
+            'print' => 'api/v1/print',
+            'shipmentPointList' => 'api/v1/shipmentPointList',
+            'shipmentSave' => 'api/v1/shipmentSave',
+            'shipmentDelete' => 'api/v1/shipmentDelete',
         ];
 
         $configuration->payerType = [self::ID_PAYER_TYPE];

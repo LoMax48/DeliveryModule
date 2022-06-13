@@ -4,14 +4,20 @@ namespace App\Services;
 
 use App\Entity\Connection;
 use App\Repository\ConnectionRepository;
+use App\Utils\Transformers\CityTransformer;
+use App\Utils\Transformers\RegionTransformer;
 use Doctrine\Common\Collections\ArrayCollection;
-use RetailCrm\Api\Model\Callback\Entity\Delivery\DeliveryAddress;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestCalculate;
+use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestDelete;
+use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestPrint;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestSave;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\ResponseProperty\ResponseCalculate;
+use RetailCrm\Api\Model\Callback\Entity\Delivery\ResponseProperty\ResponseSave;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\Terminal;
 use RetailCrm\Api\Model\Callback\Response\Delivery\CalculateResponse;
+use RetailCrm\Api\Model\Callback\Response\Delivery\SaveResponse;
 use RetailCrm\Api\Model\Callback\Response\ErrorResponse;
+use RetailCrm\Api\Model\Response\SuccessResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -86,6 +92,102 @@ class CallbackService
         return $response;
     }
 
+    public function save(Connection $connection, RequestSave $requestSave)
+    {
+        $deliveryResponse = $this->httpClient->request(
+            'POST',
+            'https://e-solution.pickpoint.ru/apitest/v2/CreateShipment',
+            [
+                'json' => [
+                    'SessionId' => $this->startSession($connection),
+                    'Sendings' => [
+                        [
+                            'EDTN' => $connection->getClientId() . time(),
+                            'IKN' => $connection->getDeliveryIKN(),
+                            'Invoice' => [
+                                'SenderCode' => $requestSave->orderNumber,
+                                'Description' => $requestSave->order,
+                                'RecipientName' => $requestSave->customer['lastName'] .
+                                    $requestSave->customer['firstName'],
+                                'PostamatNumber' => $requestSave->delivery['deliveryAddress']['terminal'],
+                                'MobilePhone' => $requestSave->customer['phones']['0'],
+                                'PostageType' => 10001,
+                                'GettingType' => 102,
+                                'PayType' => 1,
+                                'Sum' => 0,
+                                'DeliveryMode' => 1,
+                                'ClientDeliveryDate' => [
+                                    'From' => $requestSave->delivery['deliveryDate'],
+                                    'To' => $requestSave->delivery['deliveryDate'],
+                                ],
+                                'SenderCity' => [
+                                    'CityName' => CityTransformer::toPickPointFormat(
+                                        $requestSave->delivery['deliveryAddress']['city']
+                                    ),
+                                    'RegionName' => RegionTransformer::toPickPointFormat(
+                                        $requestSave->delivery['shipmentAddress']['region']
+                                    ),
+                                ],
+                                'Places' => [
+                                    [
+                                        'BarCode' => '',
+                                        'Width' => round($requestSave->packages[0]['width'] / 10),
+                                        'Height' => round($requestSave->packages[0]['height'] / 10),
+                                        'Depth' => round($requestSave->packages[0]['length'] / 10),
+                                        'Weight' => round($requestSave->packages[0]['weight'] / 1000, 2),
+                                        'SubEncloses' => [
+                                            [
+                                                'ProductCode' => $requestSave->packages[0]['items'][0]['offerId'],
+                                                'GoodsName' => $requestSave->packages[0]['items'][0]['name'],
+                                                'Price' => $requestSave->packages[0]['items'][0]['cost'],
+                                                'Vat' => 10,
+                                                'Description' => $requestSave->packages[0]['items'][0]['name'],
+                                                'Upi' => 1,
+                                            ],
+                                        ]
+                                    ],
+                                ]
+                            ]
+                        ],
+                    ]
+                ]
+            ]
+        );
+
+        $deliveryData = $deliveryResponse->toArray();
+
+        if (count($deliveryData['CreatedSendings']) > 0) {
+            $responseSave = new ResponseSave();
+            $responseSave->deliveryId = $deliveryData['CreatedSendings'][0]['InvoiceNumber'];
+            $responseSave->trackNumber = $deliveryData['CreatedSendings'][0]['InvoiceNumber'];
+        }
+
+        $saveResponse = new SaveResponse();
+        $saveResponse->result = $responseSave;
+
+        return $saveResponse;
+    }
+
+    public function delete(Connection $connection, RequestDelete $requestDelete)
+    {
+        $deliveryResponse = $this->httpClient->request(
+            'POST',
+            'https://e-solution.pickpoint.ru/apitest/removeinvoicefromreestr',
+            [
+                'json' => [
+                    'SessionId' => $this->startSession($connection),
+                    'IKN' => $connection->getDeliveryIKN(),
+                    'InvoiceNumber' => $requestDelete->deliveryId,
+                ]
+            ]
+        );
+
+        $successResponse = new SuccessResponse();
+        $successResponse->success = true;
+
+        return $successResponse;
+    }
+
     public function calculate(Connection $connection, RequestCalculate $requestCalculate): CalculateResponse
     {
         $deliveryCity = $requestCalculate->deliveryAddress['city'];
@@ -109,6 +211,7 @@ class CallbackService
             $connection,
             $requestCalculate
         );
+
         $responseCalculate = new ResponseCalculate();
         $responseCalculate->code = 'pickpoint_tariff';
         $responseCalculate->name = 'pickpoint';
@@ -128,83 +231,39 @@ class CallbackService
         return $calculateResponse;
     }
 
+
+
     public function calcTariff(Connection $connection, RequestCalculate $requestCalculate)
     {
         if ($connection->getClientId() !== null) {
             try {
-                if ($requestCalculate->deliveryAddress['region'] === 'Москва город') {
-                    $requestCalculate->deliveryAddress['region'] = 'Московская обл.';
-                }
-                if ($requestCalculate->deliveryAddress['region'] === 'Севастополь город') {
-                    $requestCalculate->deliveryAddress['region'] = 'Крым респ.';
-                }
-                if ($requestCalculate->deliveryAddress['region'] === 'Санкт-Петербург город') {
-                    $requestCalculate->deliveryAddress['region'] = 'Ленинградская обл.';
-                }
+                $requestCalculate->deliveryAddress['region'] =
+                    RegionTransformer::toPickPointFormat($requestCalculate->deliveryAddress['region']);
+                $requestCalculate->shipmentAddress['region'] =
+                    RegionTransformer::toPickPointFormat($requestCalculate->shipmentAddress['region']);
+                $requestCalculate->deliveryAddress['city'] =
+                    CityTransformer::toPickPointFormat($requestCalculate->deliveryAddress['city']);
+                $requestCalculate->shipmentAddress['city'] =
+                    CityTransformer::toPickPointFormat($requestCalculate->shipmentAddress['city']);
 
-                if ($requestCalculate->shipmentAddress['region'] === 'Москва город') {
-                    $requestCalculate->shipmentAddress['region'] = 'Московская обл.';
-                }
-                if ($requestCalculate->shipmentAddress['region'] === 'Севастополь город') {
-                    $requestCalculate->shipmentAddress['region'] = 'Крым респ.';
-                }
-                if ($requestCalculate->shipmentAddress['region'] === 'Санкт-Петербург город') {
-                    $requestCalculate->shipmentAddress['region'] = 'Ленинградская обл.';
-                }
-
-                $requestCalculate->deliveryAddress['city'] = str_replace(
-                    'г. ',
-                    '',
-                    $requestCalculate->deliveryAddress['city']
-                );
-                $requestCalculate->shipmentAddress['city'] = str_replace(
-                    'г. ',
-                    '',
-                    $requestCalculate->shipmentAddress['city']
-                );
-                $requestCalculate->deliveryAddress['region'] = str_replace(
-                    'область',
-                    'обл.',
-                    $requestCalculate->deliveryAddress['region']
-                );
-                $requestCalculate->shipmentAddress['region'] = str_replace(
-                    'область',
-                    'обл.',
-                    $requestCalculate->shipmentAddress['region']
-                );
-
-                $requestCalculate->deliveryAddress['region'] = str_replace(
-                    'Республика',
-                    'респ.',
-                    $requestCalculate->deliveryAddress['region']
-                );
-                $requestCalculate->shipmentAddress['region'] = str_replace(
-                    'Республика',
-                    'респ.',
-                    $requestCalculate->shipmentAddress['region']
-                );
-
-                $requestCalculate->deliveryAddress['region'] = ucfirst(
-                    strtolower($requestCalculate->deliveryAddress['region'])
-                );
-                $requestCalculate->shipmentAddress['region'] = ucfirst(
-                    strtolower($requestCalculate->shipmentAddress['region'])
-                );
-
-                $data = $this->httpClient->request('POST', 'https://e-solution.pickpoint.ru/apitest/calctariff', [
-                    'json' => [
-                        'SessionId' => $this->startSession($connection),
-                        'IKN' => $connection->getDeliveryIKN(),
-                        'FromCity' => $requestCalculate->shipmentAddress['city'],
-                        'FromRegion' => $requestCalculate->shipmentAddress['region'],
-                        'ToCity' => $requestCalculate->deliveryAddress['city'],
-                        'ToRegion' => $requestCalculate->deliveryAddress['region'],
-                        'Length' => round($requestCalculate->packages[0]['length'] / 10),
-                        'Width' => round($requestCalculate->packages[0]['width'] / 10),
-                        'Depth' => round($requestCalculate->packages[0]['height'] / 10),
-                        'Weight' => round($requestCalculate->packages[0]['weight'] / 1000, 2),
+                $data = $this->httpClient->request(
+                    'POST',
+                    'https://e-solution.pickpoint.ru/apitest/calctariff',
+                    [
+                        'json' => [
+                            'SessionId' => $this->startSession($connection),
+                            'IKN' => $connection->getDeliveryIKN(),
+                            'FromCity' => $requestCalculate->shipmentAddress['city'],
+                            'FromRegion' => $requestCalculate->shipmentAddress['region'],
+                            'ToCity' => $requestCalculate->deliveryAddress['city'],
+                            'ToRegion' => $requestCalculate->deliveryAddress['region'],
+                            'Length' => round($requestCalculate->packages[0]['length'] / 10),
+                            'Width' => round($requestCalculate->packages[0]['width'] / 10),
+                            'Depth' => round($requestCalculate->packages[0]['height'] / 10),
+                            'Weight' => round($requestCalculate->packages[0]['weight'] / 1000, 2),
+                        ]
                     ]
-                ]);
+                );
 
                 return json_decode($data->getContent(), true, 512, JSON_THROW_ON_ERROR);
             } catch (\Exception $exception) {
@@ -252,8 +311,5 @@ class CallbackService
         return $response;
     }
 
-    public function save(RequestSave $requestSave, Connection $connection)
-    {
 
-    }
 }

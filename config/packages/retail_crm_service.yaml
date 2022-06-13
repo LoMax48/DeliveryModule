@@ -10,5 +10,6 @@ retail_crm_service:
       supports:
         - App\Entity\Connection
         - RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestCalculate
+        - RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestSave
   messenger:
     message_handler: simple_console_runner
