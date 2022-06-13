@@ -111,11 +111,12 @@ class CallbackService
                                     $requestSave->customer['firstName'],
                                 'PostamatNumber' => $requestSave->delivery['deliveryAddress']['terminal'],
                                 'MobilePhone' => $requestSave->customer['phones']['0'],
-                                'PostageType' => 10001,
-                                'GettingType' => 102,
+                                'PostageType' => $requestSave->delivery['extraData']['postageType'],
+                                'GettingType' => $requestSave->delivery['extraData']['gettingType'],
                                 'PayType' => 1,
                                 'Sum' => 0,
-                                'DeliveryMode' => 1,
+                                'DeliveryFat' => $requestSave->delivery['extraData']['deliveryFat'],
+                                'DeliveryMode' => $requestSave->delivery['extraData']['deliveryMode'],
                                 'ClientDeliveryDate' => [
                                     'From' => $requestSave->delivery['deliveryDate'],
                                     'To' => $requestSave->delivery['deliveryDate'],
@@ -160,10 +161,52 @@ class CallbackService
             $responseSave = new ResponseSave();
             $responseSave->deliveryId = $deliveryData['CreatedSendings'][0]['InvoiceNumber'];
             $responseSave->trackNumber = $deliveryData['CreatedSendings'][0]['InvoiceNumber'];
+            $responseSave->extraData['barCode'] = $deliveryData['CreatedSendings'][0]['Barcode'];
         }
 
         $saveResponse = new SaveResponse();
         $saveResponse->result = $responseSave;
+
+        return $saveResponse;
+    }
+
+    public function update(Connection $connection, RequestSave $requestSave)
+    {
+        $deliveryResponse = $this->httpClient->request(
+            'POST',
+            'https://e-solution.pickpoint.ru/apitest/updateInvoice',
+            [
+                'json' => [
+                    'SessionId' => $this->startSession($connection),
+                    'InvoiceNumber' => $requestSave->deliveryId,
+                    'GCInvoiceNumber' => $requestSave->deliveryId,
+                    'PostamatNumber' => $requestSave->delivery['deliveryAddress']['terminal'],
+                    'Phone' => $requestSave->customer['phones'][0],
+                    'RecipientName' => $requestSave->customer['lastName'] . ' ' . $requestSave->customer['firstName'],
+                    'BarCode' => $requestSave->delivery['extraData']['barCode'],
+                    'SubEncloses' => [
+                        [
+                            'ProductCode' => $requestSave->packages[0]['items'][0]['offerId'],
+                            'GoodsName' => $requestSave->packages[0]['items'][0]['name'],
+                            'Name' => $requestSave->packages[0]['items'][0]['name'],
+                            'Price' => $requestSave->packages[0]['items'][0]['cost'],
+                            'Vat' => 10,
+                            'Description' => $requestSave->packages[0]['items'][0]['name'],
+                            'Upi' => 1,
+                        ],
+                    ]
+                ]
+            ]
+        );
+
+        $deliveryData = $deliveryResponse->toArray();
+
+        $responseSave = new ResponseSave();
+        $responseSave->deliveryId = $deliveryData['InvoiceNumber'];
+
+        $saveResponse = new SaveResponse();
+        $saveResponse->result = $responseSave;
+        $saveResponse->success = true;
 
         return $saveResponse;
     }
@@ -231,7 +274,21 @@ class CallbackService
         return $calculateResponse;
     }
 
+    public function makeLabel(Connection $connection, RequestPrint $requestPrint)
+    {
+        $deliveryResponse = $this->httpClient->request(
+            'POST',
+            'https://e-solution.pickpoint.ru/apitest/makelabel',
+            [
+                'json' => [
+                    'SessionId' => $this->startSession($connection),
+                    'Invoices' => $requestPrint->deliveryIds[0],
+                ]
+            ]
+        );
 
+        return $deliveryResponse->getContent();
+    }
 
     public function calcTariff(Connection $connection, RequestCalculate $requestCalculate)
     {
@@ -310,6 +367,4 @@ class CallbackService
 
         return $response;
     }
-
-
 }

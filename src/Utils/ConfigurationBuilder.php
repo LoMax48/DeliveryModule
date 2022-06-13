@@ -6,6 +6,7 @@ use App\Entity\Connection;
 use App\Services\CallbackService;
 use RetailCrm\Api\Model\Entity\Integration\Delivery\DeliveryConfiguration;
 use RetailCrm\Api\Model\Entity\Integration\Delivery\DeliveryDataField;
+use RetailCrm\Api\Model\Entity\Integration\Delivery\Plate;
 use RetailCrm\Api\Model\Entity\Integration\Delivery\Status;
 use RetailCrm\Api\Model\Entity\Integration\IntegrationModule;
 use RetailCrm\Api\Model\Entity\Integration\Integrations;
@@ -93,6 +94,7 @@ class ConfigurationBuilder
         $configuration->rateDeliveryCost = true;
         $configuration->statusList = $this->statusList();
         $configuration->deliveryDataFieldList = $this->buildDeliveryDataFieldList();
+        $configuration->plateList = $this->plateList();
 
         return $configuration;
     }
@@ -116,24 +118,128 @@ class ConfigurationBuilder
     {
         $result = [];
 
-        $dataField = new DeliveryDataField();
-        $dataField->code = 'postamat';
-        $dataField->label = 'Пункт выдачи заказов';
-        $dataField->type = 'choice';
-        $dataField->hint = 'Выбор пункта выдачи заказов';
-        $dataField->affectsCost = false;
-        $dataField->required = true;
-        $dataField->editable = true;
-        $dataField->choices = [
+        $gettingType = new DeliveryDataField();
+        $gettingType->code = 'gettingType';
+        $gettingType->label = 'Тип сдачи отправления';
+        $gettingType->hint = 'Выбор типа сдачи отправления';
+        $gettingType->type = 'choice';
+        $gettingType->required = true;
+        $gettingType->editable = true;
+        $gettingType->affectsCost = false;
+        $gettingType->choices = [
             [
-                'value' => 'hello',
-                'label' => 'by',
-            ]
+                'value' => 101,
+                'label' => 'Вызов курьера',
+            ],
+            [
+                'value' => 102,
+                'label' => 'В окне приёма сервисного центра',
+            ],
+            [
+                'value' => 103,
+                'label' => 'В окне приёма ПТ валом',
+            ],
+            [
+                'value' => 104,
+                'label' => 'В окне приёма ПТ (самостоятельный развоз в нужный ПТ)',
+            ],
         ];
 
+        $result[] = $gettingType;
 
-        $result[] = $dataField;
+        $deliveryFat = new DeliveryDataField();
+        $deliveryFat->code = 'deliveryFat';
+        $deliveryFat->label = 'Ставка НДС по сервисному сбору';
+        $deliveryFat->hint = 'Ставка НДС по сервисному сбору';
+        $deliveryFat->type = 'choice';
+        $deliveryFat->required = true;
+        $deliveryFat->editable = true;
+        $deliveryFat->affectsCost = false;
+        $deliveryFat->choices = [
+            [
+                'value' => 20,
+                'label' => 'НДС 20%',
+            ],
+            [
+                'value' => 10,
+                'label' => 'НДС 10%',
+            ],
+            [
+                'value' => 0,
+                'label' => 'Без НДС',
+            ],
+        ];
+
+        $result[] = $deliveryFat;
+
+        $postageType = new DeliveryDataField();
+        $postageType->code = 'postageType';
+        $postageType->label = 'Вид отправления';
+        $postageType->hint = 'Выбор вида отправления';
+        $postageType->type = 'choice';
+        $postageType->required = true;
+        $postageType->editable = true;
+        $postageType->affectsCost = false;
+        $postageType->choices = [
+            [
+                'value' => 10001,
+                'label' => 'Оплаченный заказ',
+            ],
+            [
+                'value' => 10003,
+                'label' => 'Отправление с наложенным платежом',
+            ],
+        ];
+
+        $result[] = $postageType;
+
+        $deliveryMode = new DeliveryDataField();
+        $deliveryMode->code = 'deliveryMode';
+        $deliveryMode->label = 'Режим доставки';
+        $deliveryMode->hint = 'Выбор режима доставки';
+        $deliveryMode->type = 'choice';
+        $deliveryMode->required = true;
+        $deliveryMode->editable = true;
+        $deliveryFat->affectsCost = false;
+        $deliveryMode->choices = [
+            [
+                'value' => 1,
+                'label' => 'Стандарт',
+            ],
+            [
+                'value' => 2,
+                'label' => 'Приоритетный',
+            ],
+        ];
+
+        $result[] = $deliveryMode;
+
+        $barCode = new DeliveryDataField();
+        $barCode->code = 'barCode';
+        $barCode->label = 'Штрих-код';
+        $barCode->type = 'text';
+        $barCode->visible = false;
+        $barCode->required = false;
+        $barCode->affectsCost = false;
+        $barCode->editable = true;
+
+        $result[] = $barCode;
 
         return $result;
+    }
+
+    public function plateList(): array
+    {
+        $plateList = [];
+
+        $plate = new Plate();
+
+        $plate->code = 'pickpoint';
+        $plate->type = 'order';
+        $plate->label = 'Печатная форма PickPoint';
+
+        $plateList[] = $plate;
+
+        return $plateList;
     }
 }

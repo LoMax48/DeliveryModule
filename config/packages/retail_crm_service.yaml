@@ -6,6 +6,7 @@ retail_crm_service:
         - { type: RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestCalculate, params: [ "calculate" ] }
         - { type: RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestSave, params: [ "save" ] }
         - { type: RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestDelete, params: [ "delete" ] }
+        - { type: RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestPrint, params: [ "print" ] }
     client:
       supports:
         - App\Entity\Connection

@@ -1,14 +1,104 @@
 parameters:
   delivery.codes:
-    - '01'
-    - '10'
+    - '100'
+    - '101'
+    - '102'
+    - '103'
+    - '104'
+    - '105'
+    - '106'
+    - '107'
+    - '108'
+    - '110'
+    - '116'
+    - '118'
+    - '119'
+    - '120'
+    - '121'
+    - '123'
+    - '144'
+    - '145'
+    - '146'
+    - '147'
 
   delivery.mapper_statuses:
     -
-      name: 'Черновик'
-      code: '01'
+      name: 'Принят по реестру'
+      code: '100'
       isEditable: false
     -
-      name: 'Тест'
-      code: '10'
-      isEditable: true
+      name: 'Зарегистрирован'
+      code: '101'
+      isEditable: false
+    -
+      name: 'Зарегистрирован'
+      code: '102'
+      isEditable: false
+    -
+      name: 'Сформирован для передачи Логисту'
+      code: '103'
+      isEditable: false
+    -
+      name: 'Сформирован для отправки'
+      code: '104'
+      isEditable: false
+    -
+      name: 'Принят Логистом'
+      code: '105'
+      isEditable: false
+    -
+      name: 'На кладовке Логиста'
+      code: '106'
+      isEditable: false
+    -
+      name: 'Выдан на маршрут'
+      code: '107'
+      isEditable: false
+    -
+      name: 'Выдано курьеру'
+      code: '108'
+      isEditable: false
+    -
+      name: 'Принято в ПТ'
+      code: '110'
+      isEditable: false
+    -
+      name: 'Передано на возврат'
+      code: '116'
+      isEditable: false
+    -
+      name: 'Передано на ИНО'
+      code: '118'
+      isEditable: false
+    -
+      name: 'Принято на ИНО'
+      code: '119'
+      isEditable: false
+    -
+      name: 'Затюковано на ИНО'
+      code: '120'
+      isEditable: false
+    -
+      name: 'Назначен курьер'
+      code: '121'
+      isEditable: false
+    -
+      name: 'Сконсолидировано'
+      code: '123'
+      isEditable: false
+    -
+      name: 'Считан в конс. Накладную'
+      code: '144'
+      isEditable: false
+    -
+      name: 'Считан в накладную передачи Ф11'
+      code: '145'
+      isEditable: false
+    -
+      name: 'Передано фиктивно'
+      code: '146'
+      isEditable: false
+    -
+      name: 'Выдан на маршрут внутрирегиональный'
+      code: '147'
+      isEditable: false

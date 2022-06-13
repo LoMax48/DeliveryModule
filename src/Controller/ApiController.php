@@ -9,6 +9,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use RetailCrm\Api\Factory\SimpleClientFactory;
 use RetailCrm\Api\Interfaces\ApiExceptionInterface;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestCalculate;
+use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestDelete;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestPrint;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestSave;
 use RetailCrm\Api\Model\Request\Integration\IntegrationModulesEditRequest;
@@ -90,7 +91,21 @@ class ApiController extends AbstractController
             'crmUrl' => 'https://lomax48.retailcrm.ru',
         ]);
 
-        $result = $this->service->save($connection, $requestSave);
+        if ($requestSave->deliveryId === null) {
+            $result = $this->service->save($connection, $requestSave);
+        } else {
+            $result = $this->service->update($connection, $requestSave);
+        }
+        return new JsonResponse($result);
+    }
+
+    public function delete(RequestDelete $requestDelete)
+    {
+        $connection = $this->entityManager->getRepository(Connection::class)->findOneBy([
+            'crmUrl' => 'https://lomax48.retailcrm.ru',
+        ]);
+
+        $result = $this->service->delete($connection, $requestDelete);
 
         return new JsonResponse($result);
     }
@@ -108,6 +123,6 @@ class ApiController extends AbstractController
 
         $result = $this->service->makeLabel($connection, $requestPrint);
 
-        return new JsonResponse($result);
+        return new Response($result);
     }
 }
