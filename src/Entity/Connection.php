@@ -3,6 +3,8 @@
 namespace App\Entity;
 
 use App\Repository\ConnectionRepository;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use RetailCrm\Validator\CrmUrl;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
@@ -58,6 +60,16 @@ class Connection implements UserInterface
      * @ORM\Column(type="string", length=255, unique=true)
      */
     private $clientId;
+
+    /**
+     * @ORM\OneToMany(targetEntity=Delivery::class, mappedBy="connection", orphanRemoval=true)
+     */
+    private $deliveries;
+
+    public function __construct()
+    {
+        $this->deliveries = new ArrayCollection();
+    }
 
     public function getId(): ?int
     {
@@ -176,5 +188,35 @@ class Connection implements UserInterface
     public function eraseCredentials()
     {
         // TODO: Implement eraseCredentials() method.
+    }
+
+    /**
+     * @return Collection<int, Delivery>
+     */
+    public function getDeliveries(): Collection
+    {
+        return $this->deliveries;
+    }
+
+    public function addDelivery(Delivery $delivery): self
+    {
+        if (!$this->deliveries->contains($delivery)) {
+            $this->deliveries[] = $delivery;
+            $delivery->setConnection($this);
+        }
+
+        return $this;
+    }
+
+    public function removeDelivery(Delivery $delivery): self
+    {
+        if ($this->deliveries->removeElement($delivery)) {
+            // set the owning side to null (unless already changed)
+            if ($delivery->getConnection() === $this) {
+                $delivery->setConnection(null);
+            }
+        }
+
+        return $this;
     }
 }

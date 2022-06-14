@@ -3,10 +3,10 @@
 namespace App\Services;
 
 use App\Entity\Connection;
-use App\Repository\ConnectionRepository;
+use App\Entity\Delivery;
 use App\Utils\Transformers\CityTransformer;
 use App\Utils\Transformers\RegionTransformer;
-use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\ORM\EntityManagerInterface;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestCalculate;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestDelete;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestPrint;
@@ -18,78 +18,23 @@ use RetailCrm\Api\Model\Callback\Response\Delivery\CalculateResponse;
 use RetailCrm\Api\Model\Callback\Response\Delivery\SaveResponse;
 use RetailCrm\Api\Model\Callback\Response\ErrorResponse;
 use RetailCrm\Api\Model\Response\SuccessResponse;
-use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class CallbackService
 {
+    private EntityManagerInterface $entityManager;
     private HttpClientInterface $httpClient;
+    private PickPointService $pickPointService;
 
-    public function __construct(HttpClientInterface $httpClient, ConnectionRepository $connectionRepository)
-    {
+    public function __construct(
+        EntityManagerInterface $entityManager,
+        HttpClientInterface $httpClient,
+        PickPointService $pickPointService
+    ) {
+        $this->entityManager = $entityManager;
         $this->httpClient = $httpClient;
-    }
-
-    public function startSession(Connection $connection): string
-    {
-        try {
-            $response = $this->httpClient->request(
-                'POST',
-                'https://e-solution.pickpoint.ru/apitest/login',
-                [
-                    'json' => [
-                        'Login' => $connection->getDeliveryLogin(),
-                        'Password' => $connection->getDeliveryPassword(),
-                    ]
-                ]
-            );
-
-            $content = $response->toArray();
-
-            return $content['SessionId'] ?: $content['ErrorMessage'];
-        } catch (\Exception $exception) {
-            return $exception->getMessage();
-        }
-    }
-
-    public function getShipmentPointsList(Connection $connection, string $targetCity): Response
-    {
-        $response = new JsonResponse();
-
-        try {
-            $deliveryResponse = $this->httpClient->request(
-                'POST',
-                'https://e-solution.pickpoint.ru/apitest/clientpostamatlist',
-                [
-                    'json' => [
-                        'SessionId' => $this->startSession($connection),
-                        'IKN' => $connection->getDeliveryIKN()
-                    ]
-                ]
-            );
-
-            $shipmentPoints = new ArrayCollection($deliveryResponse->toArray());
-
-            if ($targetCity) {
-                $filteredShipmentPoints = $shipmentPoints->filter(function ($shipmentPoint) use ($targetCity) {
-                    return $shipmentPoint['CitiName'] === $targetCity;
-                });
-
-                $response->setContent(json_encode($filteredShipmentPoints->getValues(), JSON_THROW_ON_ERROR));
-            } else {
-                $response->setContent(json_encode($shipmentPoints->getValues(), JSON_THROW_ON_ERROR));
-            }
-        } catch (\Exception $exception) {
-            $response->setContent(json_encode([
-                'errorMessage' => $exception->getMessage()
-            ], JSON_THROW_ON_ERROR));
-        }
-
-        $response->setStatusCode(Response::HTTP_OK);
-
-        return $response;
+        $this->pickPointService = $pickPointService;
     }
 
     public function save(Connection $connection, RequestSave $requestSave)
@@ -99,7 +44,7 @@ class CallbackService
             'https://e-solution.pickpoint.ru/apitest/v2/CreateShipment',
             [
                 'json' => [
-                    'SessionId' => $this->startSession($connection),
+                    'SessionId' => $this->pickPointService->startSession($connection),
                     'Sendings' => [
                         [
                             'EDTN' => $connection->getClientId() . time(),
@@ -162,12 +107,27 @@ class CallbackService
             $responseSave->deliveryId = $deliveryData['CreatedSendings'][0]['InvoiceNumber'];
             $responseSave->trackNumber = $deliveryData['CreatedSendings'][0]['InvoiceNumber'];
             $responseSave->extraData['barCode'] = $deliveryData['CreatedSendings'][0]['Barcode'];
+
+            $saveResponse = new SaveResponse();
+            $saveResponse->result = $responseSave;
+
+            $delivery = new Delivery();
+            $delivery->setConnection($connection);
+            $delivery->setDeliveryId($responseSave->deliveryId);
+            $delivery->setOrderId($requestSave->orderNumber);
+            $delivery->setSum($requestSave->delivery['cost']);
+            $delivery->setDate($requestSave->delivery['deliveryDate']);
+
+            $this->entityManager->persist($delivery);
+            $this->entityManager->flush();
+
+            return $saveResponse;
         }
 
-        $saveResponse = new SaveResponse();
-        $saveResponse->result = $responseSave;
+        $errorResponse = new ErrorResponse();
+        $errorResponse->errorMsg = 'Ошибка оформления доставки. Возможно, данное отправление уже создано.';
 
-        return $saveResponse;
+        return $errorResponse;
     }
 
     public function update(Connection $connection, RequestSave $requestSave)
@@ -177,7 +137,7 @@ class CallbackService
             'https://e-solution.pickpoint.ru/apitest/updateInvoice',
             [
                 'json' => [
-                    'SessionId' => $this->startSession($connection),
+                    'SessionId' => $this->pickPointService->startSession($connection),
                     'InvoiceNumber' => $requestSave->deliveryId,
                     'GCInvoiceNumber' => $requestSave->deliveryId,
                     'PostamatNumber' => $requestSave->delivery['deliveryAddress']['terminal'],
@@ -215,29 +175,61 @@ class CallbackService
     {
         $deliveryResponse = $this->httpClient->request(
             'POST',
-            'https://e-solution.pickpoint.ru/apitest/removeinvoicefromreestr',
+            'https://e-solution.pickpoint.ru/apitest/cancelInvoice',
             [
                 'json' => [
-                    'SessionId' => $this->startSession($connection),
+                    'SessionId' => $this->pickPointService->startSession($connection),
                     'IKN' => $connection->getDeliveryIKN(),
                     'InvoiceNumber' => $requestDelete->deliveryId,
                 ]
             ]
         );
 
-        $successResponse = new SuccessResponse();
-        $successResponse->success = true;
+        $deliveryData = $deliveryResponse->toArray();
 
-        return $successResponse;
+        if ($deliveryData['Result'] === true) {
+            $successResponse = new SuccessResponse();
+            $successResponse->success = true;
+
+            return $successResponse;
+        }
+
+        $errorResponse = new ErrorResponse();
+        $errorResponse->errorMsg = 'Не удалось отменить доставку. Свяжитесь с менеджером.';
+
+        return $errorResponse;
+    }
+
+    public function makeLabel(Connection $connection, RequestPrint $requestPrint)
+    {
+        $deliveryResponse = $this->httpClient->request(
+            'POST',
+            'https://e-solution.pickpoint.ru/apitest/makelabel',
+            [
+                'json' => [
+                    'SessionId' => $this->pickPointService->startSession($connection),
+                    'Invoices' => $requestPrint->deliveryIds[0],
+                ]
+            ]
+        );
+
+        return $deliveryResponse->getContent();
     }
 
     public function calculate(Connection $connection, RequestCalculate $requestCalculate): CalculateResponse
     {
-        $deliveryCity = $requestCalculate->deliveryAddress['city'];
+        $deliveryCity = CityTransformer::toPickPointFormat($requestCalculate->deliveryAddress['city']);
+        $deliveryRegion = RegionTransformer::toPickPointFormat($requestCalculate->deliveryAddress['region']);
 
-        $pickPointResponse = $this->getShipmentPointsList($connection, $deliveryCity);
+        $pickPointResponse =
+            $this->pickPointService->getShipmentPointsList($connection, $deliveryCity, $deliveryRegion);
 
-        $shipmentPoints = json_decode($pickPointResponse->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        $shipmentPoints = json_decode(
+            $pickPointResponse->getContent(),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
 
         $terminals = [];
 
@@ -250,7 +242,7 @@ class CallbackService
             $terminals[] = $terminal;
         }
 
-        $tariffs = $this->calcTariff(
+        $tariffs = $this->pickPointService->calcTariff(
             $connection,
             $requestCalculate
         );
@@ -274,97 +266,39 @@ class CallbackService
         return $calculateResponse;
     }
 
-    public function makeLabel(Connection $connection, RequestPrint $requestPrint)
+    public function shipmentPointList(Connection $connection, Request $request)
     {
-        $deliveryResponse = $this->httpClient->request(
-            'POST',
-            'https://e-solution.pickpoint.ru/apitest/makelabel',
-            [
-                'json' => [
-                    'SessionId' => $this->startSession($connection),
-                    'Invoices' => $requestPrint->deliveryIds[0],
-                ]
-            ]
+        $shipmentCity = CityTransformer::toPickPointFormat($request['city']);
+        $shipmentRegion = RegionTransformer::toPickPointFormat($request['region']);
+
+        $pickPointResponse =
+            $this->pickPointService->getShipmentPointsList($connection, $shipmentCity, $shipmentRegion);
+
+        $shipmentPoints = json_decode(
+            $pickPointResponse->getContent(),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
         );
 
-        return $deliveryResponse->getContent();
-    }
+        if (count($shipmentPoints) > 0) {
+            $terminals = [];
 
-    public function calcTariff(Connection $connection, RequestCalculate $requestCalculate)
-    {
-        if ($connection->getClientId() !== null) {
-            try {
-                $requestCalculate->deliveryAddress['region'] =
-                    RegionTransformer::toPickPointFormat($requestCalculate->deliveryAddress['region']);
-                $requestCalculate->shipmentAddress['region'] =
-                    RegionTransformer::toPickPointFormat($requestCalculate->shipmentAddress['region']);
-                $requestCalculate->deliveryAddress['city'] =
-                    CityTransformer::toPickPointFormat($requestCalculate->deliveryAddress['city']);
-                $requestCalculate->shipmentAddress['city'] =
-                    CityTransformer::toPickPointFormat($requestCalculate->shipmentAddress['city']);
-
-                $data = $this->httpClient->request(
-                    'POST',
-                    'https://e-solution.pickpoint.ru/apitest/calctariff',
-                    [
-                        'json' => [
-                            'SessionId' => $this->startSession($connection),
-                            'IKN' => $connection->getDeliveryIKN(),
-                            'FromCity' => $requestCalculate->shipmentAddress['city'],
-                            'FromRegion' => $requestCalculate->shipmentAddress['region'],
-                            'ToCity' => $requestCalculate->deliveryAddress['city'],
-                            'ToRegion' => $requestCalculate->deliveryAddress['region'],
-                            'Length' => round($requestCalculate->packages[0]['length'] / 10),
-                            'Width' => round($requestCalculate->packages[0]['width'] / 10),
-                            'Depth' => round($requestCalculate->packages[0]['height'] / 10),
-                            'Weight' => round($requestCalculate->packages[0]['weight'] / 1000, 2),
-                        ]
-                    ]
-                );
-
-                return json_decode($data->getContent(), true, 512, JSON_THROW_ON_ERROR);
-            } catch (\Exception $exception) {
-                $errorResponse = new ErrorResponse();
-                $errorResponse->errorMsg = $exception->getMessage();
-
-                return $errorResponse;
+            foreach ($shipmentPoints as $point) {
+                $terminal = new Terminal();
+                $terminal->code = $point['Id'];
+                $terminal->name = $point['Name'];
+                $terminal->address = $point['Address'];
+                $terminal->schedule = $point['WorkTime'];
+                $terminals[] = $terminal;
             }
-        } else {
-            $errorResponse = new ErrorResponse();
-            $errorResponse->errorMsg = 'Параметр ClientId не указан.';
 
-            return $errorResponse;
+            return [
+                'success' => true,
+                'result' => $terminals,
+            ];
         }
-    }
 
-    public function getNearestShipmentPoint(Request $request): Response
-    {
-        $data = json_decode($request->getContent(), true, 512, JSON_THROW_ON_ERROR);
-
-        $shipmentPointsResponse = $this->getShipmentPointsList($request);
-        $shipmentPoints = new ArrayCollection(json_decode($shipmentPointsResponse->getContent(), true));
-
-        $oneDegreeLength = 80000;
-        $clientLatitude = $data['clientLatitude'];
-        $clientLongitude = $data['clientLongitude'];
-
-        $iterator = $shipmentPoints->getIterator();
-
-        $iterator->uasort(function ($first, $second) use ($oneDegreeLength, $clientLatitude, $clientLongitude) {
-            return ($oneDegreeLength * sqrt((($clientLatitude - $first['Latitude']) ** 2) +
-                    (($clientLongitude - $first['Longitude']) ** 2))) >
-            ($oneDegreeLength * sqrt((($clientLatitude - $second['Latitude']) ** 2) +
-                    (($clientLongitude - $second['Longitude']) ** 2))) ? 1 : -1;
-        });
-
-        $sortedShipmentPoints = new ArrayCollection(iterator_to_array($iterator));
-        $nearestShipmentPoint = $sortedShipmentPoints->first();
-
-        $response = new Response();
-        $response->setContent(json_encode($nearestShipmentPoint, JSON_THROW_ON_ERROR));
-        $response->setStatusCode(Response::HTTP_OK);
-        $response->headers->set('Content-Type', 'application/json');
-
-        return $response;
+        return ['success' => false];
     }
 }

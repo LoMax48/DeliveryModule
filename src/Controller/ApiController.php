@@ -12,9 +12,11 @@ use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestCalculat
 use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestDelete;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestPrint;
 use RetailCrm\Api\Model\Callback\Entity\Delivery\RequestProperty\RequestSave;
+use RetailCrm\Api\Model\Request\Delivery\DeliveryShipmentsRequest;
 use RetailCrm\Api\Model\Request\Integration\IntegrationModulesEditRequest;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
 
@@ -99,6 +101,11 @@ class ApiController extends AbstractController
         return new JsonResponse($result);
     }
 
+    /**
+     * @param RequestDelete $requestDelete
+     * @return JsonResponse
+     * @Route("/delete", name="api_delete", methods={"POST"})
+     */
     public function delete(RequestDelete $requestDelete)
     {
         $connection = $this->entityManager->getRepository(Connection::class)->findOneBy([
@@ -124,5 +131,21 @@ class ApiController extends AbstractController
         $result = $this->service->makeLabel($connection, $requestPrint);
 
         return new Response($result);
+    }
+
+    /**
+     * @param Request $request
+     * @return Response
+     * @Route("/shipmentPointList", name="api_shipment_points", methods={"GET"})
+     */
+    public function shipmentPointList(Request $request): Response
+    {
+        $connection = $this->entityManager->getRepository(Connection::class)->findOneBy([
+            'crmUrl' => 'https://lomax48.retailcrm.ru',
+        ]);
+
+        $result = $this->service->shipmentPointList($connection, $request);
+
+        return new JsonResponse($result);
     }
 }

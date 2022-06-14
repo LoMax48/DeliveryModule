@@ -60,7 +60,7 @@ class ConfigurationBuilder
         $module->baseUrl = $baseUrl . '/';
         $module->actions = ['activity' => '/api/v1/activity'];
         $module->availableCountries = self::ID_AVAILABLE_COUNTRIES;
-        $module->accountUrl = $baseUrl . '/register';
+        $module->accountUrl = $baseUrl . '/delivery/';
 
         $integrations = new Integrations();
         $integrations->delivery = $this->buildConfiguration();

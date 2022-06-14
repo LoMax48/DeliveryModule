@@ -1,0 +1,28 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Личный кабинет{% endblock %}
+
+{% block body %}
+    <h1 class="mx-3">Данные о доставках</h1>
+
+    <div class="container-fluid my-2 mx-10">
+        <div class="card">
+            <div class="card-body">
+                <p class="card-text">Средняя стоимость доставки: {{ avgSum }} рублей.</p>
+            </div>
+        </div>
+    </div>
+
+    {% for delivery in deliveries %}
+        <div class="container-fluid my-2 mx-10">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Отправление {{ delivery.deliveryId }}</h5>
+                    <p class="card-text">Заказ {{ delivery.orderId }}</p>
+                    <p class="card-text">Дата доставки: {{ delivery.date }}</p>
+                    <div class="card-footer container-fluid">Стоимость доставки: {{ delivery.sum }} рублей</div>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+{% endblock %}
